@@ -1,4 +1,4 @@
-import type { TrackPoint } from '../types';
+import type { LatLon, TrackPoint } from '../types';
 import type { Settings } from '../types';
 
 const EARTH_RADIUS_M = 6_371_000;
@@ -115,4 +115,66 @@ export function formatDate(ts: number): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(ts));
+}
+
+export function routeDistanceMeters(points: LatLon[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    total += haversineMeters(
+      { ...points[i - 1], alt: null, t: 0, acc: null, speed: null },
+      { ...points[i], alt: null, t: 0, acc: null, speed: null },
+    );
+  }
+  return total;
+}
+
+/** Metres from a position to the closest point on the planned route line. */
+export function distanceToRoute(position: LatLon, route: LatLon[]): number {
+  if (route.length === 0) return 0;
+  if (route.length === 1) {
+    return haversineMeters(
+      { ...position, alt: null, t: 0, acc: null, speed: null },
+      { ...route[0], alt: null, t: 0, acc: null, speed: null },
+    );
+  }
+
+  let best = Infinity;
+  for (let i = 1; i < route.length; i += 1) {
+    best = Math.min(best, distanceToSegment(position, route[i - 1], route[i]));
+  }
+  return best;
+}
+
+function distanceToSegment(p: LatLon, a: LatLon, b: LatLon): number {
+  const latRange = b.lat - a.lat;
+  const lonRange = b.lon - a.lon;
+  const lengthSq = latRange ** 2 + lonRange ** 2;
+  if (lengthSq === 0) {
+    return haversineMeters(
+      { ...p, alt: null, t: 0, acc: null, speed: null },
+      { ...a, alt: null, t: 0, acc: null, speed: null },
+    );
+  }
+  const t = Math.max(0, Math.min(1, ((p.lat - a.lat) * latRange + (p.lon - a.lon) * lonRange) / lengthSq));
+  const projected = { lat: a.lat + t * latRange, lon: a.lon + t * lonRange };
+  return haversineMeters(
+    { ...p, alt: null, t: 0, acc: null, speed: null },
+    { ...projected, alt: null, t: 0, acc: null, speed: null },
+  );
+}
+
+export function nextWaypoint(position: LatLon, route: LatLon[]): { index: number; distanceM: number } {
+  let index = 0;
+  let best = Infinity;
+  route.forEach((point, i) => {
+    const d = haversineMeters(
+      { ...position, alt: null, t: 0, acc: null, speed: null },
+      { ...point, alt: null, t: 0, acc: null, speed: null },
+    );
+    if (d < best) {
+      best = d;
+      index = i;
+    }
+  });
+  return { index, distanceM: best };
 }

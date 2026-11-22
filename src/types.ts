@@ -1,6 +1,9 @@
-export interface TrackPoint {
+export interface LatLon {
   lat: number;
   lon: number;
+}
+
+export interface TrackPoint extends LatLon {
   alt: number | null;
   t: number;
   acc: number | null;
@@ -23,4 +26,12 @@ export interface Run {
 export interface Settings {
   weightKg: number;
   units: 'km' | 'mi';
+}
+
+export interface PlannedRoute {
+  id: string;
+  name: string;
+  points: LatLon[];
+  createdAt: number;
+  distanceM: number;
 }

@@ -8,6 +8,7 @@ A small, free and privacy-first running tracker. Built with Vite + React, wrappe
 
 - GPS run tracking with live distance, pace, time and elevation
 - Interactive map with your route (OpenStreetMap tiles)
+- **Route planner**: tap points on the map to draw your own route, save it, then follow it live with next-waypoint and off-route distance
 - Local run history with detail view
 - Weekly chart, totals and personal bests
 - GPX import-ready export (share or download)

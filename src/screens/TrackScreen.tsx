@@ -4,20 +4,24 @@ import { useTracker } from '../hooks/useTracker';
 import {
   computeStats,
   distanceLabel,
+  distanceToRoute,
   formatDistance,
   formatDuration,
   formatPace,
+  nextWaypoint,
   paceLabel,
 } from '../lib/geo';
 import { exportRuns } from '../lib/gpx';
-import type { Run, Settings } from '../types';
+import type { PlannedRoute, Run, Settings } from '../types';
 
 interface Props {
   settings: Settings;
+  activeRoute: PlannedRoute | null;
+  onClearRoute: () => void;
   onSave: (run: Run) => void;
 }
 
-export function TrackScreen({ settings, onSave }: Props) {
+export function TrackScreen({ settings, activeRoute, onClearRoute, onSave }: Props) {
   const [follow, setFollow] = useState(true);
   const [lastRun, setLastRun] = useState<Run | null>(null);
   const [exportNote, setExportNote] = useState<string | null>(null);
@@ -48,6 +52,12 @@ export function TrackScreen({ settings, onSave }: Props) {
       }
     : live;
   const currentPoint = tracker.points[tracker.points.length - 1] ?? null;
+  const routeInfo = activeRoute && currentPoint
+    ? {
+        offRouteM: distanceToRoute(currentPoint, activeRoute.points),
+        next: nextWaypoint(currentPoint, activeRoute.points),
+      }
+    : null;
 
   return (
     <section className="screen">
@@ -73,6 +83,9 @@ export function TrackScreen({ settings, onSave }: Props) {
           points={shown ? shown.points : tracker.points}
           current={tracker.state === 'tracking' ? currentPoint : null}
           follow={follow && tracker.state === 'tracking'}
+          overlayPoints={activeRoute ? activeRoute.points : undefined}
+          overlayColor="#f59e0b"
+          fit={Boolean(activeRoute) && tracker.state !== 'tracking' && tracker.points.length < 2}
           className="map-card__map"
         />
         {tracker.state === 'tracking' && (
@@ -83,7 +96,31 @@ export function TrackScreen({ settings, onSave }: Props) {
             {follow ? 'Following you' : 'Follow off'}
           </button>
         )}
+        {activeRoute && (
+          <button className="route-chip" onClick={onClearRoute}>
+            Route: {activeRoute.name} ×
+          </button>
+        )}
       </div>
+
+      {activeRoute && (
+        <div className="route-guide">
+          <div>
+            <span className="route-guide__label">Following route</span>
+            <strong>{activeRoute.name}</strong>
+          </div>
+          <div>
+            <span className="route-guide__label">Next point</span>
+            <strong>{routeInfo ? `${Math.round(routeInfo.next.distanceM)} m` : 'Start GPS'}</strong>
+          </div>
+          <div>
+            <span className="route-guide__label">Off route</span>
+            <strong className={routeInfo && routeInfo.offRouteM > 60 ? 'route-guide__warn' : ''}>
+              {routeInfo ? `${Math.round(routeInfo.offRouteM)} m` : '--'}
+            </strong>
+          </div>
+        </div>
+      )}
 
       <div className="stat-grid stat-grid--live">
         <Stat label={`Distance (${distanceLabel(settings.units)})`} value={formatDistance(stats.distanceM, settings.units)} />

@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HistoryScreen } from './screens/HistoryScreen';
+import { PlanScreen } from './screens/PlanScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { StatsScreen } from './screens/StatsScreen';
 import { TrackScreen } from './screens/TrackScreen';
-import { clearRuns, deleteRun, getRuns, saveRun } from './lib/db';
-import type { Run, Settings } from './types';
+import {
+  clearRuns,
+  deleteRoute,
+  deleteRun,
+  getRoutes,
+  getRuns,
+  saveRoute,
+  saveRun,
+} from './lib/db';
+import type { PlannedRoute, Run, Settings } from './types';
 
-type Tab = 'track' | 'history' | 'stats' | 'settings';
+type Tab = 'track' | 'plan' | 'history' | 'stats' | 'settings';
 
 const SETTINGS_KEY = 'trail-log-settings';
 
@@ -45,6 +54,14 @@ function Icon({ name }: { name: Tab }) {
       </svg>
     );
   }
+  if (name === 'plan') {
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </svg>
+    );
+  }
   if (name === 'history') {
     return (
       <svg {...common} aria-hidden="true">
@@ -75,13 +92,20 @@ function Icon({ name }: { name: Tab }) {
 export default function App() {
   const [tab, setTab] = useState<Tab>('track');
   const [runs, setRuns] = useState<Run[]>([]);
+  const [routes, setRoutes] = useState<PlannedRoute[]>([]);
+  const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [loading, setLoading] = useState(true);
 
+  const activeRoute = routes.find((route) => route.id === activeRouteId) ?? null;
+
   useEffect(() => {
-    getRuns()
-      .then(setRuns)
-      .catch(() => setRuns([]))
+    Promise.all([getRuns(), getRoutes()])
+      .then(([loadedRuns, loadedRoutes]) => {
+        setRuns(loadedRuns);
+        setRoutes(loadedRoutes);
+      })
+      .catch(() => undefined)
       .finally(() => setLoading(false));
   }, []);
 
@@ -104,6 +128,22 @@ export default function App() {
     setRuns([]);
   }, []);
 
+  const handleSaveRoute = useCallback(async (route: PlannedRoute) => {
+    await saveRoute(route);
+    setRoutes((current) => [route, ...current]);
+  }, []);
+
+  const handleDeleteRoute = useCallback(async (id: string) => {
+    await deleteRoute(id);
+    setRoutes((current) => current.filter((route) => route.id !== id));
+    setActiveRouteId((current) => (current === id ? null : current));
+  }, []);
+
+  const handleUseRoute = useCallback((route: PlannedRoute) => {
+    setActiveRouteId(route.id);
+    setTab('track');
+  }, []);
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -120,7 +160,20 @@ export default function App() {
         {loading ? (
           <div className="loading">Loading your runs…</div>
         ) : tab === 'track' ? (
-          <TrackScreen settings={settings} onSave={handleSave} />
+          <TrackScreen
+            settings={settings}
+            activeRoute={activeRoute}
+            onClearRoute={() => setActiveRouteId(null)}
+            onSave={handleSave}
+          />
+        ) : tab === 'plan' ? (
+          <PlanScreen
+            routes={routes}
+            settings={settings}
+            onSaveRoute={handleSaveRoute}
+            onUseRoute={handleUseRoute}
+            onDeleteRoute={handleDeleteRoute}
+          />
         ) : tab === 'history' ? (
           <HistoryScreen runs={runs} settings={settings} onDelete={handleDelete} />
         ) : tab === 'stats' ? (
@@ -138,6 +191,7 @@ export default function App() {
       <nav className="bottom-nav" aria-label="Main navigation">
         {([
           ['track', 'Track'],
+          ['plan', 'Plan'],
           ['history', 'History'],
           ['stats', 'Stats'],
           ['settings', 'Settings'],
