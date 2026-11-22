@@ -46,6 +46,9 @@ function createCssTile(
   const tile = document.createElement('div');
   tile.className = 'leaflet-tile tl-css-tile leaflet-tile-loaded';
   tile.style.opacity = '1';
+  tile.style.color = '#000';
+  tile.style.fontSize = '10px';
+  tile.textContent = `${coords.z}/${coords.x}/${coords.y}`;
   const sub = TILE_SUBDOMAINS[(coords.x + coords.y) % TILE_SUBDOMAINS.length];
   const url = `https://${sub}.tile.openstreetmap.org/${coords.z}/${coords.x}/${coords.y}.png`;
 
@@ -57,6 +60,7 @@ function createCssTile(
   img.style.width = '256px';
   img.style.height = '256px';
   img.style.display = 'block';
+  img.style.opacity = '0.7';
   img.onload = () => onStatus(true);
   img.onerror = () => {
     img.style.display = 'none';
