@@ -180,8 +180,20 @@ h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: -0.3px; }
 
 .map-card__map { height: 40vh; min-height: 260px; }
 .map-card--detail .map-card__map { height: 32vh; min-height: 220px; }
-.tl-map { height: 100%; width: 100%; background: var(--surface-2); }
-.leaflet-container { font-family: inherit; background: var(--surface-2); }
+.tl-map { height: 100%; width: 100%; background: #e9eff0; position: relative; }
+.leaflet-container { font-family: inherit; background: #e9eff0; }
+.tl-map__notice {
+  position: absolute;
+  left: 12px; right: 12px; top: 12px;
+  z-index: 600;
+  background: #fff8e1;
+  color: #6b4b00;
+  border: 1px solid #f0d264;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-shadow: var(--shadow);
+}
 
 .tl-map-icon { display: grid; place-items: center; background: none; border: 0; }
 .tl-map-icon span { display: block; width: 14px; height: 14px; border-radius: 50%; }

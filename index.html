@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // Some Android WebView builds fail to composite Leaflet's GPU-transformed tile
+      // images, leaving the map blank. This must run before Leaflet is loaded.
+      window.L_DISABLE_3D = true;
+    </script>
     <meta name="theme-color" content="#0f766e" />
     <meta name="description" content="TrailLog - a simple, private running tracker." />
     <title>TrailLog</title>

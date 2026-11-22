@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import type { LeafletMouseEvent } from 'leaflet';
 import {
@@ -36,6 +36,52 @@ function numberedIcon(number: number) {
   });
 }
 
+const TILE_SOURCES = [
+  {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c'],
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c', 'd'],
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+];
+
+function FallbackTiles({ onFailure }: { onFailure: () => void }) {
+  const [index, setIndex] = useState(0);
+  const errors = useRef(0);
+  const source = TILE_SOURCES[index];
+
+  useEffect(() => {
+    errors.current = 0;
+  }, [index]);
+
+  return (
+    <TileLayer
+      key={source.url}
+      url={source.url}
+      subdomains={source.subdomains}
+      attribution={source.attribution}
+      maxZoom={19}
+      keepBuffer={4}
+      eventHandlers={{
+        tileerror: () => {
+          errors.current += 1;
+          if (errors.current >= 4 && index < TILE_SOURCES.length - 1) {
+            setIndex(index + 1);
+          } else if (errors.current >= 10) {
+            onFailure();
+          }
+        },
+      }}
+    />
+  );
+}
+
 function FitBounds({ points, active }: { points: LatLon[]; active: boolean }) {
   const map = useMap();
   useEffect(() => {
@@ -58,12 +104,50 @@ function FollowPosition({ point, active }: { point: LatLon | null; active: boole
   return null;
 }
 
+function Recenter({ center }: { center?: [number, number] }) {
+  const map = useMap();
+  const lat = center?.[0];
+  const lon = center?.[1];
+  useEffect(() => {
+    if (lat == null || lon == null) return;
+    map.setView([lat, lon], Math.max(map.getZoom(), 14), { animate: false });
+  }, [lat, lon, map]);
+  return null;
+}
+
 function ResizeHandler() {
   const map = useMap();
   useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize());
-    observer.observe(map.getContainer());
-    return () => observer.disconnect();
+    const refresh = () => map.invalidateSize();
+    const timer = window.setTimeout(refresh, 150);
+    const timer2 = window.setTimeout(refresh, 600);
+    window.addEventListener('resize', refresh);
+    map.whenReady(refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(timer2);
+      window.removeEventListener('resize', refresh);
+    };
+  }, [map]);
+  return null;
+}
+
+function TileRefresher() {
+  const map = useMap();
+  useEffect(() => {
+    // Re-issue tile requests after mount. Android WebView can leave individual tile
+    // images stuck in a failed decode state; a redraw creates fresh img elements.
+    const redraw = () => {
+      map.eachLayer((layer) => {
+        if (layer instanceof L.TileLayer) layer.redraw();
+      });
+    };
+    const first = window.setTimeout(redraw, 1600);
+    const second = window.setTimeout(redraw, 4500);
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
   }, [map]);
   return null;
 }
@@ -102,6 +186,7 @@ export function MapView({
   overlayColor = '#f59e0b',
   numbered = false,
 }: MapViewProps) {
+  const [tilesFailed, setTilesFailed] = useState(false);
   const positions = useMemo(
     () => points.map((p) => [p.lat, p.lon] as [number, number]),
     [points],
@@ -124,12 +209,10 @@ export function MapView({
         scrollWheelZoom
         attributionControl
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maxZoom={19}
-        />
+        <FallbackTiles onFailure={() => setTilesFailed(true)} />
         <ResizeHandler />
+        <TileRefresher />
+        <Recenter center={center} />
         <ClickHandler onPick={onPick} />
         <FitBounds points={points} active={fit} />
         <FollowPosition point={current ?? null} active={follow} />
@@ -164,6 +247,11 @@ export function MapView({
         )}
         {current && <Marker position={[current.lat, current.lon]} icon={currentIcon} />}
       </MapContainer>
+      {tilesFailed && (
+        <div className="tl-map__notice" role="status">
+          Map tiles could not load. Check your internet connection, then reopen this screen.
+        </div>
+      )}
     </div>
   );
 }
