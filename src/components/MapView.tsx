@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
 import type { LeafletMouseEvent } from 'leaflet';
 import {
@@ -6,7 +6,6 @@ import {
   MapContainer,
   Marker,
   Polyline,
-  TileLayer,
   useMap,
   useMapEvents,
 } from 'react-leaflet';
@@ -36,50 +35,69 @@ function numberedIcon(number: number) {
   });
 }
 
-const TILE_SOURCES = [
-  {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    subdomains: ['a', 'b', 'c'],
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  },
-  {
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    subdomains: ['a', 'b', 'c', 'd'],
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  },
-];
+const TILE_SUBDOMAINS = ['a', 'b', 'c'];
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-function FallbackTiles({ onFailure }: { onFailure: () => void }) {
-  const [index, setIndex] = useState(0);
-  const errors = useRef(0);
-  const source = TILE_SOURCES[index];
+function createCssTile(coords: L.Coords): HTMLElement {
+  const tile = document.createElement('div');
+  tile.className = 'leaflet-tile tl-css-tile';
+  const sub = TILE_SUBDOMAINS[(coords.x + coords.y) % TILE_SUBDOMAINS.length];
+  const url = `https://${sub}.tile.openstreetmap.org/${coords.z}/${coords.x}/${coords.y}.png`;
+
+  void fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error('Tile request failed');
+      return response.blob();
+    })
+    .then(
+      (blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Tile read failed'));
+          reader.readAsDataURL(blob);
+        }),
+    )
+    .then((dataUrl) => {
+      tile.style.backgroundImage = `url("${dataUrl}")`;
+    })
+    .catch(() => {
+      tile.style.backgroundImage = `url("${url}")`;
+    });
+
+  return tile;
+}
+
+class CssGridLayer extends L.GridLayer {
+  createTile(coords: L.Coords): HTMLElement {
+    return createCssTile(coords);
+  }
+}
+
+function CssTiles() {
+  const map = useMap();
 
   useEffect(() => {
-    errors.current = 0;
-  }, [index]);
+    // Leaflet's default TileLayer paints tiles with <img> elements. Some Android
+    // WebView builds silently drop those image layers, leaving a blank map. Fetch
+    // the bytes and paint them as a CSS background instead — those render fine.
+    const layer = new CssGridLayer({
+      tileSize: 256,
+      minZoom: 0,
+      maxZoom: 19,
+      attribution: TILE_ATTRIBUTION,
+      keepBuffer: 4,
+      updateWhenIdle: false,
+    });
 
-  return (
-    <TileLayer
-      key={source.url}
-      url={source.url}
-      subdomains={source.subdomains}
-      attribution={source.attribution}
-      maxZoom={19}
-      keepBuffer={4}
-      eventHandlers={{
-        tileerror: () => {
-          errors.current += 1;
-          if (errors.current >= 4 && index < TILE_SOURCES.length - 1) {
-            setIndex(index + 1);
-          } else if (errors.current >= 10) {
-            onFailure();
-          }
-        },
-      }}
-    />
-  );
+    layer.addTo(map);
+    return () => {
+      map.removeLayer(layer);
+    };
+  }, [map]);
+
+  return null;
 }
 
 function FitBounds({ points, active }: { points: LatLon[]; active: boolean }) {
@@ -132,26 +150,6 @@ function ResizeHandler() {
   return null;
 }
 
-function TileRefresher() {
-  const map = useMap();
-  useEffect(() => {
-    // Re-issue tile requests after mount. Android WebView can leave individual tile
-    // images stuck in a failed decode state; a redraw creates fresh img elements.
-    const redraw = () => {
-      map.eachLayer((layer) => {
-        if (layer instanceof L.TileLayer) layer.redraw();
-      });
-    };
-    const first = window.setTimeout(redraw, 1600);
-    const second = window.setTimeout(redraw, 4500);
-    return () => {
-      window.clearTimeout(first);
-      window.clearTimeout(second);
-    };
-  }, [map]);
-  return null;
-}
-
 function ClickHandler({ onPick }: { onPick?: (lat: number, lon: number) => void }) {
   useMapEvents({
     click(event: LeafletMouseEvent) {
@@ -187,6 +185,21 @@ export function MapView({
   numbered = false,
 }: MapViewProps) {
   const [tilesFailed, setTilesFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void fetch('https://a.tile.openstreetmap.org/0/0/0.png')
+      .then((response) => {
+        if (active && !response.ok) setTilesFailed(true);
+      })
+      .catch(() => {
+        if (active) setTilesFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const positions = useMemo(
     () => points.map((p) => [p.lat, p.lon] as [number, number]),
     [points],
@@ -209,9 +222,8 @@ export function MapView({
         scrollWheelZoom
         attributionControl
       >
-        <FallbackTiles onFailure={() => setTilesFailed(true)} />
+        <CssTiles />
         <ResizeHandler />
-        <TileRefresher />
         <Recenter center={center} />
         <ClickHandler onPick={onPick} />
         <FitBounds points={points} active={fit} />
