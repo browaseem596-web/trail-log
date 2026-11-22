@@ -43,55 +43,63 @@ function createCssTile(
   coords: L.Coords,
   onStatus: (ok: boolean) => void,
 ): HTMLElement {
-  const tile = document.createElement('div');
-  tile.className = 'leaflet-tile tl-css-tile leaflet-tile-loaded';
-  tile.style.opacity = '1';
-  tile.style.color = '#000';
-  tile.style.fontSize = '10px';
-  tile.textContent = `${coords.z}/${coords.x}/${coords.y}`;
+  const size = 256;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.className = 'leaflet-tile tl-css-tile leaflet-tile-loaded';
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  canvas.style.opacity = '1';
+
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#e9eff0';
+    ctx.fillRect(0, 0, size, size);
+  }
+
   const sub = TILE_SUBDOMAINS[(coords.x + coords.y) % TILE_SUBDOMAINS.length];
   const url = `https://${sub}.tile.openstreetmap.org/${coords.z}/${coords.x}/${coords.y}.png`;
 
-  const img = document.createElement('img');
-  img.src = url;
-  img.alt = '';
-  img.loading = 'eager';
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
   img.decoding = 'async';
-  img.style.width = '256px';
-  img.style.height = '256px';
-  img.style.display = 'block';
-  img.style.opacity = '0.7';
-  img.onload = () => onStatus(true);
-  img.onerror = () => {
-    img.style.display = 'none';
-    onStatus(false);
-  };
-  tile.appendChild(img);
-
-  void fetch(url)
-    .then((response) => {
-      if (!response.ok) throw new Error('Tile request failed');
-      return response.blob();
-    })
-    .then(
-      (blob) =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => reject(new Error('Tile read failed'));
-          reader.readAsDataURL(blob);
-        }),
-    )
-    .then((dataUrl) => {
-      tile.style.backgroundImage = `url("${dataUrl}")`;
-      img.style.display = 'none';
+  img.onload = () => {
+    try {
+      if (ctx) ctx.drawImage(img, 0, 0, size, size);
       onStatus(true);
-    })
-    .catch(() => {
-      // Keep the plain <img> child visible as fallback.
-    });
+    } catch {
+      // Tainted canvas / draw failure - fall back to img element.
+      const fallback = document.createElement('img');
+      fallback.src = url;
+      fallback.alt = '';
+      fallback.style.width = `${size}px`;
+      fallback.style.height = `${size}px`;
+      canvas.replaceWith(fallback);
+      fallback.onload = () => onStatus(true);
+      fallback.onerror = () => onStatus(false);
+    }
+  };
+  img.onerror = () => {
+    // Direct image fallback without CORS
+    const fallback = new Image();
+    fallback.decoding = 'async';
+    fallback.onload = () => {
+      try {
+        if (ctx) ctx.drawImage(fallback, 0, 0, size, size);
+        onStatus(true);
+      } catch {
+        onStatus(false);
+      }
+    };
+    fallback.onerror = () => onStatus(false);
+    fallback.src = url;
+  };
+  img.src = url;
 
-  return tile;
+  return canvas;
 }
 
 class CssGridLayer extends L.GridLayer {

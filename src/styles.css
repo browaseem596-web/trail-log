@@ -181,12 +181,11 @@ h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: -0.3px; }
 .map-card__map { height: 40vh; min-height: 260px; }
 .map-card--detail .map-card__map { height: 32vh; min-height: 220px; }
 .tl-map { height: 100%; width: 100%; background: #e9eff0; position: relative; }
-.leaflet-container { font-family: inherit; background: #00ffff; }
+.leaflet-container { font-family: inherit; background: #e9eff0; }
 .tl-css-tile {
   background-size: 256px 256px;
   background-repeat: no-repeat;
-  background-color: #ff00ff;
-  border: 1px solid #00ff00;
+  background-color: #e9eff0;
 }
 .tl-map__debug {
   position: absolute;
