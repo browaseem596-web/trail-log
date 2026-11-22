@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import type { LeafletMouseEvent } from 'leaflet';
 import {
@@ -39,15 +39,16 @@ const TILE_SUBDOMAINS = ['a', 'b', 'c'];
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-function createCssTile(coords: L.Coords): HTMLElement {
+function createCssTile(
+  coords: L.Coords,
+  onStatus: (ok: boolean) => void,
+): HTMLElement {
   const tile = document.createElement('div');
   tile.className = 'leaflet-tile tl-css-tile leaflet-tile-loaded';
   tile.style.opacity = '1';
   const sub = TILE_SUBDOMAINS[(coords.x + coords.y) % TILE_SUBDOMAINS.length];
   const url = `https://${sub}.tile.openstreetmap.org/${coords.z}/${coords.x}/${coords.y}.png`;
 
-  // Use a plain <img> as a child too — some WebViews show it while CSS
-  // background-image decoding is unreliable. The tile container is visible either way.
   const img = document.createElement('img');
   img.src = url;
   img.alt = '';
@@ -56,8 +57,10 @@ function createCssTile(coords: L.Coords): HTMLElement {
   img.style.width = '256px';
   img.style.height = '256px';
   img.style.display = 'block';
+  img.onload = () => onStatus(true);
   img.onerror = () => {
     img.style.display = 'none';
+    onStatus(false);
   };
   tile.appendChild(img);
 
@@ -78,6 +81,7 @@ function createCssTile(coords: L.Coords): HTMLElement {
     .then((dataUrl) => {
       tile.style.backgroundImage = `url("${dataUrl}")`;
       img.style.display = 'none';
+      onStatus(true);
     })
     .catch(() => {
       // Keep the plain <img> child visible as fallback.
@@ -87,32 +91,39 @@ function createCssTile(coords: L.Coords): HTMLElement {
 }
 
 class CssGridLayer extends L.GridLayer {
+  constructor(
+    options: L.GridLayerOptions,
+    private readonly onStatus: (ok: boolean) => void,
+  ) {
+    super(options);
+  }
+
   createTile(coords: L.Coords): HTMLElement {
-    return createCssTile(coords);
+    return createCssTile(coords, this.onStatus);
   }
 }
 
-function CssTiles() {
+function CssTiles({ onStatus }: { onStatus: (ok: boolean) => void }) {
   const map = useMap();
 
   useEffect(() => {
-    // Leaflet's default TileLayer paints tiles with <img> elements. Some Android
-    // WebView builds silently drop those image layers, leaving a blank map. Fetch
-    // the bytes and paint them as a CSS background instead — those render fine.
-    const layer = new CssGridLayer({
-      tileSize: 256,
-      minZoom: 0,
-      maxZoom: 19,
-      attribution: TILE_ATTRIBUTION,
-      keepBuffer: 4,
-      updateWhenIdle: false,
-    });
+    const layer = new CssGridLayer(
+      {
+        tileSize: 256,
+        minZoom: 0,
+        maxZoom: 19,
+        attribution: TILE_ATTRIBUTION,
+        keepBuffer: 4,
+        updateWhenIdle: false,
+      },
+      onStatus,
+    );
 
     layer.addTo(map);
     return () => {
       map.removeLayer(layer);
     };
-  }, [map]);
+  }, [map, onStatus]);
 
   return null;
 }
@@ -202,6 +213,26 @@ export function MapView({
   numbered = false,
 }: MapViewProps) {
   const [tilesFailed, setTilesFailed] = useState(false);
+  const [debug, setDebug] = useState('map: init');
+  const okCount = useRef(0);
+  const errCount = useRef(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      const hasLeaflet = el.querySelector('.leaflet-container') ? 1 : 0;
+      setDebug((d) => {
+        const rest = d.replace(/^map:\d+x\d+L?\d*\s*/, '');
+        return `map:${Math.round(r.width)}x${Math.round(r.height)}L${hasLeaflet} ${rest}`;
+      });
+    };
+    report();
+    const t = window.setTimeout(report, 800);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -217,6 +248,18 @@ export function MapView({
     };
   }, []);
 
+  const onStatus = useMemo(
+    () => (ok: boolean) => {
+      if (ok) okCount.current += 1;
+      else errCount.current += 1;
+      setDebug((d) => {
+        const prefix = d.match(/^map:\S+/)?.[0] ?? 'map:?';
+        return `${prefix} ok:${okCount.current} err:${errCount.current}`;
+      });
+    },
+    [],
+  );
+
   const positions = useMemo(
     () => points.map((p) => [p.lat, p.lon] as [number, number]),
     [points],
@@ -231,7 +274,7 @@ export function MapView({
     : center ?? (firstPoint ? [firstPoint.lat, firstPoint.lon] : [0, 0]);
 
   return (
-    <div className={`tl-map ${className ?? ''}`}>
+    <div ref={containerRef} className={`tl-map ${className ?? ''}`}>
       <MapContainer
         center={fallbackCenter}
         zoom={current || center ? 16 : 13}
@@ -239,7 +282,7 @@ export function MapView({
         scrollWheelZoom
         attributionControl
       >
-        <CssTiles />
+        <CssTiles onStatus={onStatus} />
         <ResizeHandler />
         <Recenter center={center} />
         <ClickHandler onPick={onPick} />
@@ -276,6 +319,7 @@ export function MapView({
         )}
         {current && <Marker position={[current.lat, current.lon]} icon={currentIcon} />}
       </MapContainer>
+      <div className="tl-map__debug" aria-hidden="true">{debug}</div>
       {tilesFailed && (
         <div className="tl-map__notice" role="status">
           Map tiles could not load. Check your internet connection, then reopen this screen.
