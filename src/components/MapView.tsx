@@ -41,9 +41,25 @@ const TILE_ATTRIBUTION =
 
 function createCssTile(coords: L.Coords): HTMLElement {
   const tile = document.createElement('div');
-  tile.className = 'leaflet-tile tl-css-tile';
+  tile.className = 'leaflet-tile tl-css-tile leaflet-tile-loaded';
+  tile.style.opacity = '1';
   const sub = TILE_SUBDOMAINS[(coords.x + coords.y) % TILE_SUBDOMAINS.length];
   const url = `https://${sub}.tile.openstreetmap.org/${coords.z}/${coords.x}/${coords.y}.png`;
+
+  // Use a plain <img> as a child too — some WebViews show it while CSS
+  // background-image decoding is unreliable. The tile container is visible either way.
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '';
+  img.loading = 'eager';
+  img.decoding = 'async';
+  img.style.width = '256px';
+  img.style.height = '256px';
+  img.style.display = 'block';
+  img.onerror = () => {
+    img.style.display = 'none';
+  };
+  tile.appendChild(img);
 
   void fetch(url)
     .then((response) => {
@@ -61,9 +77,10 @@ function createCssTile(coords: L.Coords): HTMLElement {
     )
     .then((dataUrl) => {
       tile.style.backgroundImage = `url("${dataUrl}")`;
+      img.style.display = 'none';
     })
     .catch(() => {
-      tile.style.backgroundImage = `url("${url}")`;
+      // Keep the plain <img> child visible as fallback.
     });
 
   return tile;
